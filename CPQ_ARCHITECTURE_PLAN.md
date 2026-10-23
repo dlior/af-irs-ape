@@ -18,7 +18,43 @@ Every package and boundary in this repository was designed to map 1-to-1 to a re
 
 ---
 
-## 2. Target Monorepo Structure for CPQ
+## 2. Technology Stack & Library Decisions
+
+### A. Core Stack (Already Installed & Configured in This Blueprint)
+
+| Category                 | Technology                                 | Package(s)                                                                                     | Role in CPQ                                                                                                                           |
+| :----------------------- | :----------------------------------------- | :--------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------ |
+| **Toolchain & Monorepo** | **Vite+ (`vp`)** + npm workspaces          | `vite-plus` (`Oxlint`, `tsgolint`, `Oxfmt`, `Vitest`, `tsdown`)                                | Unified task runner, caching, formatting, type-aware linting, bundler, and test runner.                                               |
+| **Frontend Runtime**     | **React 19 + React Compiler**              | `react`, `react-dom`, `babel-plugin-react-compiler`                                            | Automatic memoization for complex quote tables and calculators without manual `useMemo`/`useCallback`.                                |
+| **Routing**              | **TanStack Router**                        | `@tanstack/react-router`, `@tanstack/router-plugin`                                            | File-based, 100% type-safe routing, search-param validation (filters/tabs), and `useBlocker` for unsaved quote changes.               |
+| **API Contract & RPC**   | **oRPC**                                   | `@orpc/contract`, `@orpc/nest`, `@orpc/client`, `@orpc/openapi-client`, `@orpc/tanstack-query` | Contract-first API (`@ape/contract`), native NestJS `@Controller()` integration, and TanStack Query `queryOptions`/`mutationOptions`. |
+| **API Docs**             | **oRPC OpenAPI + Scalar**                  | `@orpc/openapi`, `@orpc/zod`                                                                   | Auto-generated OpenAPI 3.1.1 spec (`/docs/spec.json`) and interactive Scalar UI (`/docs`).                                            |
+| **Server State**         | **TanStack Query v5**                      | `@tanstack/react-query`                                                                        | Caching, background refetching, optimistic updates, and request deduplication.                                                        |
+| **Client / Draft State** | **Zustand v5 + Immer**                     | `zustand`, `immer`                                                                             | Local working copy of the active quote draft, undo/redo history, and multi-panel UI state.                                            |
+| **Data Grids**           | **TanStack Table v9**                      | `@tanstack/react-table`                                                                        | Headless line-item configurator grid, multi-column sorting, grouping, and expandable bundle rows.                                     |
+| **Forms**                | **TanStack Form**                          | `@tanstack/react-form`                                                                         | Type-safe forms validated directly with shared `@ape/shared` Zod v4 schemas.                                                          |
+| **UI & Styling**         | **Tailwind CSS v4 + shadcn/ui + Radix UI** | `tailwindcss`, `radix-ui`, `lucide-react`, `class-variance-authority`                          | Accessible, customizable enterprise UI components.                                                                                    |
+| **Backend Framework**    | **NestJS 12**                              | `@nestjs/core`, `@nestjs/common`, `@nestjs/platform-express`, `@nestjs/serve-static`           | Modular backend architecture, DI container, Guards (Okta/RBAC), Interceptors, and single-origin static SPA hosting.                   |
+| **Database & ORM**       | **Drizzle ORM + Official NestJS Drizzle**  | `@nestjs/drizzle`, `drizzle-orm`, `drizzle-kit`, `better-sqlite3` (or `pg` in prod)            | Type-safe SQL queries, transactions, schema migrations, and `:memory:` test isolation.                                                |
+| **Validation**           | **Zod v4**                                 | `zod`                                                                                          | Runtime schema validation shared across client forms, oRPC contracts, and backend services.                                           |
+
+---
+
+### B. Recommended Additions When Building the Full CPQ App (Add Only as Needed)
+
+| Need in CPQ                                                                          | Recommendation                                                                     | Why This Choice (and What to Avoid)                                                                                                                                                                                                                                                                                                                                            |
+| :----------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Charts & Analytics** (Margin waterfall, discount distribution, ramp deal bars)     | **shadcn/ui Charts (`recharts`)** (`npx shadcn@latest add chart`)                  | **Avoid `@tanstack/react-charts`**: TanStack Charts has been stuck in an old unmaintained beta (`v3.0.0-beta.57`) and does not support React 19 properly. **shadcn/ui Charts** wraps `recharts` using your exact Tailwind v4 theme variables and works out of the box with zero custom styling.                                                                                |
+| **Debounce / Autosave Timing** (Debouncing quote autosave & catalog search)          | **`use-debounce`** (or a 25-line custom hook wrapping **`@tanstack/react-pacer`**) | **`@tanstack/react-pacer`** (`useDebouncer`, `useQueuer`) is promising and actively built by TanStack, but is still `0.x` beta. For production safety today, either use `use-debounce` (rock-solid, supports `.flush()` on route leave and `.cancel()`) or wrap it inside a single `useDebouncedAutosave()` hook so you can swap to `@tanstack/react-pacer` later in one file. |
+| **Range Sliders & Date Ranges** (Discount % range filters, contract start/end dates) | **shadcn/ui (`slider`, `calendar`, `popover`)**                                    | **No extra library needed.** You already have `radix-ui` installed. `shadcn add slider` natively supports dual-thumb ranges (`value={[min, max]}`), and `shadcn add calendar` (`react-day-picker`) natively supports date ranges (`mode="range"`).                                                                                                                             |
+| **Large Table Virtualization** (Quotes with 200+ line items or 5,000+ SKU catalogs)  | **`@tanstack/react-virtual`**                                                      | Official, stable (`v3`) TanStack package that pairs directly with `@tanstack/react-table` to render only visible rows at 60fps.                                                                                                                                                                                                                                                |
+| **Line-Item Drag & Drop** (Reordering quote rows & bundle sections)                  | **`@dnd-kit/core` + `@dnd-kit/sortable`**                                          | Works cleanly with `@tanstack/react-table` and keyboard accessibility.                                                                                                                                                                                                                                                                                                         |
+| **Decimal / Currency Math** (Tiered discounting, proration, FX conversion)           | **Integer Cents + `decimal.js` (inside `@ape/pricing`)**                           | Prevents IEEE-754 floating-point errors (`0.1 + 0.2 !== 0.3`) when calculating multi-year ramp deals and percentage discounts.                                                                                                                                                                                                                                                 |
+| **Quote PDF Export** (Customer-facing proposal PDF)                                  | **Playwright / Puppeteer in `apps/api`** or **`@react-pdf/renderer`**              | Renders approved quotes into signed PDFs for sending to customers or attaching to CRM opportunities.                                                                                                                                                                                                                                                                           |
+
+---
+
+## 3. Target Monorepo Structure for CPQ
 
 ```text
 cpq-monorepo/
@@ -52,7 +88,7 @@ cpq-monorepo/
 
 ---
 
-## 3. Core CPQ Pillars & How to Implement Them
+## 4. Core CPQ Pillars & How to Implement Them
 
 ### Pillar 1: Okta AuthN & Role-Based AuthZ with Native NestJS Guards + oRPC Context
 
@@ -173,7 +209,7 @@ CRM APIs are external, rate-limited, and occasionally slow or unavailable.
 
 ---
 
-## 4. Recommended Implementation Roadmap
+## 5. Recommended Implementation Roadmap
 
 When you start building the real CPQ repository from this template, follow this sequence to keep every layer verifiable at each step:
 
