@@ -14,8 +14,8 @@
     }
   },
   "scripts": {
-    "dev": "vp pack src/new.ts src/old.ts --watch --no-clean",
-    "build": "vp pack src/new.ts src/old.ts",
+    "dev": "vp pack --watch --no-clean",
+    "build": "vp pack",
     "test": "vp test",
     "lint": "vp lint",
     "format": "vp fmt"
